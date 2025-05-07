@@ -15,44 +15,58 @@ export function getWebviewContent(
     context: vscode.ExtensionContext,
     webview: vscode.Webview, 
     workspaceFolders: readonly vscode.WorkspaceFolder[] | undefined,
+    gitRepos: string[] = [],
     gitStats?: GitStats
 ) {
-    // Criar URI para recursos locais
+    // Create URI for local resources
     const chartJsUri = webview.asWebviewUri(
         vscode.Uri.file(path.join(context.extensionPath, 'src', 'media', 'chart.min.js'))
     );
 
-    // Gerar nonce para segurança
+    // Generate nonce for security
     const nonce = getNonce();
 
-    // Gerar opções para o selector de workspace
+    // Generate workspace folder options for the dropdown
     const workspaceOptions = workspaceFolders 
         ? workspaceFolders
-            .map(folder => `<option value="${folder.uri.fsPath}">${folder.name}</option>`)
+            .filter(folder => gitRepos.includes(folder.uri.fsPath))
+            .map(folder => `<option value="${folder.uri.fsPath}" ${gitStats && folder.uri.fsPath === gitStats.workspacePath ? 'selected' : ''}>${folder.name}</option>`)
             .join('')
         : '';
 
-    // Gerar opções para o selector de branches
+    // Generate branch options for the dropdown
     const branchOptions = gitStats && gitStats.branches
-        ? gitStats.branches
-            .map(branch => `<option value="${branch}" ${branch === gitStats.branch ? 'selected' : ''}>${branch}</option>`)
+        ? Object.entries(gitStats.branches)
+            .map(([branchName, details]) => {
+                const icon = details.type === 'local' ? '🔹' : '🔸';
+                return `<option value="${details.fullName}" ${branchName === gitStats.branch ? 'selected' : ''}>${icon} ${branchName}</option>`;
+            })
             .join('')
-        : '<option value="">Selecione um workspace</option>';
+        : '<option value="">Loading branches...</option>';
 
-    // Configurar datas padrão
+    // Configure default dates
     const today = new Date();
     const oneMonthAgo = new Date();
     oneMonthAgo.setMonth(today.getMonth() - 1);
 
-    const defaultStartDate = gitStats?.startDate && gitStats.startDate !== "Beginning"
-        ? gitStats.startDate
-        : oneMonthAgo.toISOString().split('T')[0];
-    
+    // Add a date picker with "From Branch Creation" option
+    const startDateOptions = `
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <input type="date" id="start-date" value="${gitStats?.startDate && gitStats.startDate !== "Beginning" ? gitStats.startDate : oneMonthAgo.toISOString().split('T')[0]}">
+            <div>
+                <label>
+                    <input type="checkbox" id="from-beginning-checkbox" ${gitStats?.startDate === "Beginning" ? "checked" : ""}>
+                    From Branch Creation
+                </label>
+            </div>
+        </div>
+    `;
+
     const defaultEndDate = gitStats?.endDate && gitStats.endDate !== "Now"
         ? gitStats.endDate
         : today.toISOString().split('T')[0];
 
-    // Preparar dados para os gráficos se disponíveis
+    // Prepare data for charts if available
     const statsJson = gitStats 
         ? JSON.stringify({
             authorNames: gitStats.authorNames,
@@ -64,7 +78,7 @@ export function getWebviewContent(
         }) 
         : 'null';
 
-    // O conteúdo HTML do webview
+    // HTML content for the webview
     return /*html*/`<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -182,6 +196,23 @@ export function getWebviewContent(
             font-style: italic;
             display: none;
         }
+        .repo-info {
+            font-size: 0.9em;
+            color: var(--vscode-descriptionForeground);
+            margin-top: -10px;
+            margin-bottom: 15px;
+        }
+        .legend {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 15px;
+            font-size: 0.9em;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
     </style>
 </head>
 <body>
@@ -190,8 +221,8 @@ export function getWebviewContent(
         
         <div class="controls">
             <div class="control-group">
-                <label for="workspace-selector">Workspace:</label>
-                <select id="workspace-selector">
+                <label for="repository-selector">Repository:</label>
+                <select id="repository-selector">
                     ${workspaceOptions}
                 </select>
             </div>
@@ -201,32 +232,36 @@ export function getWebviewContent(
                 <select id="branch-selector">
                     ${branchOptions}
                 </select>
+                <div class="legend">
+                    <div class="legend-item"><span>🔹</span> Local</div>
+                    <div class="legend-item"><span>🔸</span> Remote</div>
+                </div>
             </div>
             
             <div class="control-group">
-                <label for="start-date">Data Início:</label>
-                <input type="date" id="start-date" value="${defaultStartDate}">
+                <label for="start-date">Start Date:</label>
+                ${startDateOptions}
             </div>
             
             <div class="control-group">
-                <label for="end-date">Data Fim:</label>
+                <label for="end-date">End Date:</label>
                 <input type="date" id="end-date" value="${defaultEndDate}">
             </div>
             
             <div class="refresh-button-container">
-                <button id="refresh-stats-btn">Atualizar Estatísticas</button>
+                <button id="refresh-stats-btn">Update Statistics</button>
             </div>
         </div>
         
         <div id="stats-content">
             <div class="tabs">
-                <div class="tab active" data-tab="commits">Commits por Dia</div>
-                <div class="tab" data-tab="lines">Linhas Modificadas</div>
-                <div class="tab" data-tab="tables">Tabelas Detalhadas</div>
+                <div class="tab active" data-tab="commits">Commits Per Day</div>
+                <div class="tab" data-tab="lines">Modified Lines</div>
+                <div class="tab" data-tab="tables">Detailed Tables</div>
             </div>
             
             <div id="no-data-message">
-                Selecione um workspace, branch e intervalo de datas, e clique em "Atualizar Estatísticas" para visualizar os dados.
+                Select a repository, branch, and date range, then click "Update Statistics" to view data.
             </div>
             
             <div id="tab-commits" class="tab-content active">
@@ -242,13 +277,13 @@ export function getWebviewContent(
             </div>
             
             <div id="tab-tables" class="tab-content">
-                <h2>Commits por Autor e Data</h2>
+                <h2>Commits by Author and Date</h2>
                 <div id="commits-table-container">
                     <table>
                         <thead>
                             <tr>
-                                <th>Data</th>
-                                <th>Autor</th>
+                                <th>Date</th>
+                                <th>Author</th>
                                 <th>Email</th>
                                 <th>Commits</th>
                             </tr>
@@ -257,16 +292,16 @@ export function getWebviewContent(
                     </table>
                 </div>
                 
-                <h2>Linhas Modificadas por Autor</h2>
+                <h2>Lines Modified by Author</h2>
                 <div id="lines-table-container">
                     <table>
                         <thead>
                             <tr>
-                                <th>Autor</th>
+                                <th>Author</th>
                                 <th>Email</th>
-                                <th>Linhas Adicionadas</th>
-                                <th>Linhas Removidas</th>
-                                <th>Linhas Líquidas</th>
+                                <th>Added Lines</th>
+                                <th>Removed Lines</th>
+                                <th>Net Lines</th>
                             </tr>
                         </thead>
                         <tbody id="lines-table-body"></tbody>
@@ -279,31 +314,37 @@ export function getWebviewContent(
     <script nonce="${nonce}" src="${chartJsUri}"></script>
     <script nonce="${nonce}">
         (function() {
-            // Comunicação com VSCode
+            // Communication with VSCode
             const vscode = acquireVsCodeApi();
             
-            // Dados de estatísticas Git
+            // Git statistics data
             const gitStats = ${statsJson};
             
-            // Elementos importantes
-            const workspaceSelector = document.getElementById('workspace-selector');
+            // Important elements
+            const repositorySelector = document.getElementById('repository-selector');
             const branchSelector = document.getElementById('branch-selector');
             const startDateInput = document.getElementById('start-date');
+            const fromBeginningCheckbox = document.getElementById('from-beginning-checkbox');
             const endDateInput = document.getElementById('end-date');
             const refreshButton = document.getElementById('refresh-stats-btn');
             const tabs = document.querySelectorAll('.tab');
             const tabContents = document.querySelectorAll('.tab-content');
             const noDataMessage = document.getElementById('no-data-message');
             
-            // Referências aos gráficos
+            // Chart references
             let commitsChart = null;
             let linesChart = null;
             
-            // Inicialização
+            // Initialization
             function initialize() {
                 setupEventListeners();
                 
-                // Mostrar mensagem se não houver dados
+                // Initialize checkbox state if it exists
+                if (fromBeginningCheckbox) {
+                    startDateInput.disabled = fromBeginningCheckbox.checked;
+                }
+                
+                // Show message if no data
                 if (!gitStats) {
                     noDataMessage.style.display = 'block';
                 } else {
@@ -311,29 +352,41 @@ export function getWebviewContent(
                     renderCharts();
                     populateTables();
                 }
+                
+                // Notify the extension that the webview is ready
+                vscode.postMessage({
+                    command: 'extension-ready'
+                });
             }
             
-            // Configurar event listeners
+            // Set up event listeners
             function setupEventListeners() {
-                // Mudança de workspace
-                workspaceSelector.addEventListener('change', () => {
-                    const workspacePath = workspaceSelector.value;
+                // Repository change
+                repositorySelector.addEventListener('change', () => {
+                    const repositoryPath = repositorySelector.value;
                     vscode.postMessage({
-                        command: 'workspace-changed',
-                        workspacePath
+                        command: 'repository-changed',
+                        repositoryPath
                     });
                 });
                 
-                // Atualizar estatísticas
+                // From beginning checkbox
+                if (fromBeginningCheckbox) {
+                    fromBeginningCheckbox.addEventListener('change', () => {
+                        startDateInput.disabled = fromBeginningCheckbox.checked;
+                    });
+                }
+                
+                // Update statistics
                 refreshButton.addEventListener('click', () => {
-                    const workspacePath = workspaceSelector.value;
+                    const repositoryPath = repositorySelector.value;
                     const branch = branchSelector.value;
-                    const startDate = startDateInput.value;
+                    const startDate = fromBeginningCheckbox.checked ? "all" : startDateInput.value;
                     const endDate = endDateInput.value;
                     
                     vscode.postMessage({
                         command: 'refresh-stats',
-                        workspacePath,
+                        repositoryPath,
                         branch,
                         startDate,
                         endDate
@@ -345,11 +398,11 @@ export function getWebviewContent(
                     tab.addEventListener('click', () => {
                         const tabId = tab.getAttribute('data-tab');
                         
-                        // Atualizar estado ativo das tabs
+                        // Update active state of tabs
                         tabs.forEach(t => t.classList.remove('active'));
                         tab.classList.add('active');
                         
-                        // Mostrar conteúdo da tab selecionada
+                        // Show content of selected tab
                         tabContents.forEach(content => {
                             content.classList.remove('active');
                         });
@@ -358,7 +411,7 @@ export function getWebviewContent(
                 });
             }
             
-            // Gerar cores distintas para os gráficos
+            // Generate distinct colors for charts
             function generateDistinctColors(n) {
                 const colors = [];
                 for (let i = 0; i < n; i++) {
@@ -366,13 +419,13 @@ export function getWebviewContent(
                     if (!colors.includes(color)) {
                         colors.push(color);
                     } else {
-                        i--; // Tentar novamente
+                        i--; // Try again
                     }
                 }
                 return colors;
             }
             
-            // Renderizar gráficos
+            // Render charts
             function renderCharts() {
                 if (!gitStats) return;
                 
@@ -380,9 +433,9 @@ export function getWebviewContent(
                 renderLinesChart();
             }
             
-            // Renderizar gráfico de commits
+            // Render commits chart
             function renderCommitsChart() {
-                // Destruir gráfico existente se houver
+                // Destroy existing chart if any
                 if (commitsChart) {
                     commitsChart.destroy();
                 }
@@ -391,7 +444,7 @@ export function getWebviewContent(
                 const authorEmails = Object.keys(gitStats.authorNames);
                 const colors = generateDistinctColors(authorEmails.length);
                 
-                // Preparar datasets para cada autor
+                // Prepare datasets for each author
                 const datasets = authorEmails.map((email, index) => {
                     const data = gitStats.dateList.map(date => {
                         return gitStats.commitsByDate[date] && gitStats.commitsByDate[date][email]
@@ -408,7 +461,7 @@ export function getWebviewContent(
                     };
                 });
                 
-                // Criar gráfico
+                // Create chart
                 commitsChart = new Chart(ctx, {
                     type: 'line',
                     data: {
@@ -421,7 +474,7 @@ export function getWebviewContent(
                         plugins: {
                             title: {
                                 display: true,
-                                text: 'Commits por Dia por Autor'
+                                text: 'Commits Per Day by Author'
                             },
                             tooltip: {
                                 mode: 'index',
@@ -435,13 +488,13 @@ export function getWebviewContent(
                             x: {
                                 title: {
                                     display: true,
-                                    text: 'Data'
+                                    text: 'Date'
                                 }
                             },
                             y: {
                                 title: {
                                     display: true,
-                                    text: 'Número de Commits'
+                                    text: 'Number of Commits'
                                 },
                                 beginAtZero: true,
                                 ticks: {
@@ -453,9 +506,9 @@ export function getWebviewContent(
                 });
             }
             
-            // Renderizar gráfico de linhas modificadas
+            // Render modified lines chart
             function renderLinesChart() {
-                // Destruir gráfico existente se houver
+                // Destroy existing chart if any
                 if (linesChart) {
                     linesChart.destroy();
                 }
@@ -464,32 +517,32 @@ export function getWebviewContent(
                 const authorEmails = Object.keys(gitStats.authorNames);
                 const colors = generateDistinctColors(authorEmails.length);
                 
-                // Preparar dados
+                // Prepare data
                 const labels = authorEmails.map(email => gitStats.authorNames[email]);
                 const addedData = authorEmails.map(email => gitStats.addedLines[email] || 0);
                 const removedData = authorEmails.map(email => gitStats.removedLines[email] || 0);
                 const netData = authorEmails.map(email => gitStats.netLines[email] || 0);
                 
-                // Criar gráfico
+                // Create chart
                 linesChart = new Chart(ctx, {
                     type: 'bar',
                     data: {
                         labels: labels,
                         datasets: [
                             {
-                                label: 'Linhas Adicionadas',
+                                label: 'Added Lines',
                                 data: addedData,
-                                backgroundColor: colors.map(color => color + 'CC'), // Adiciona transparência
+                                backgroundColor: colors.map(color => color + 'CC'), // Add transparency
                                 borderWidth: 1
                             },
                             {
-                                label: 'Linhas Removidas',
-                                data: removedData.map(val => -val), // Negativo para visualização
+                                label: 'Removed Lines',
+                                data: removedData.map(val => -val), // Negative for visualization
                                 backgroundColor: colors.map(color => color + '88'),
                                 borderWidth: 1
                             },
                             {
-                                label: 'Linhas Líquidas',
+                                label: 'Net Lines',
                                 data: netData,
                                 backgroundColor: colors.map(color => color + '44'),
                                 borderWidth: 1
@@ -502,7 +555,7 @@ export function getWebviewContent(
                         plugins: {
                             title: {
                                 display: true,
-                                text: 'Linhas de Código Modificadas por Autor'
+                                text: 'Lines of Code Modified by Author'
                             },
                             tooltip: {
                                 callbacks: {
@@ -510,8 +563,8 @@ export function getWebviewContent(
                                         let label = context.dataset.label || '';
                                         let value = context.raw;
                                         
-                                        // Mostrar valores absolutos para linhas removidas
-                                        if (context.dataset.label === 'Linhas Removidas') {
+                                        // Show absolute values for removed lines
+                                        if (context.dataset.label === 'Removed Lines') {
                                             value = Math.abs(value);
                                         }
                                         
@@ -524,13 +577,13 @@ export function getWebviewContent(
                             x: {
                                 title: {
                                     display: true,
-                                    text: 'Autor'
+                                    text: 'Author'
                                 }
                             },
                             y: {
                                 title: {
                                     display: true,
-                                    text: 'Linhas de Código'
+                                    text: 'Lines of Code'
                                 }
                             }
                         }
@@ -538,7 +591,7 @@ export function getWebviewContent(
                 });
             }
             
-            // Preencher tabelas
+            // Populate tables
             function populateTables() {
                 if (!gitStats) return;
                 
@@ -546,7 +599,7 @@ export function getWebviewContent(
                 populateLinesTable();
             }
             
-            // Preencher tabela de commits
+            // Populate commits table
             function populateCommitsTable() {
                 const tableBody = document.getElementById('commits-table-body');
                 tableBody.innerHTML = '';
@@ -556,12 +609,12 @@ export function getWebviewContent(
                         for (const email in gitStats.commitsByDate[date]) {
                             const row = document.createElement('tr');
                             
-                            // Data
+                            // Date
                             const dateCell = document.createElement('td');
                             dateCell.textContent = date;
                             row.appendChild(dateCell);
                             
-                            // Autor
+                            // Author
                             const authorCell = document.createElement('td');
                             authorCell.textContent = gitStats.authorNames[email];
                             row.appendChild(authorCell);
@@ -582,7 +635,7 @@ export function getWebviewContent(
                 }
             }
             
-            // Preencher tabela de linhas
+            // Populate lines table
             function populateLinesTable() {
                 const tableBody = document.getElementById('lines-table-body');
                 tableBody.innerHTML = '';
@@ -592,7 +645,7 @@ export function getWebviewContent(
                 for (const email of authorEmails) {
                     const row = document.createElement('tr');
                     
-                    // Autor
+                    // Author
                     const authorCell = document.createElement('td');
                     authorCell.textContent = gitStats.authorNames[email];
                     row.appendChild(authorCell);
@@ -602,17 +655,17 @@ export function getWebviewContent(
                     emailCell.textContent = email;
                     row.appendChild(emailCell);
                     
-                    // Linhas adicionadas
+                    // Added lines
                     const addedCell = document.createElement('td');
                     addedCell.textContent = gitStats.addedLines[email] || 0;
                     row.appendChild(addedCell);
                     
-                    // Linhas removidas
+                    // Removed lines
                     const removedCell = document.createElement('td');
                     removedCell.textContent = gitStats.removedLines[email] || 0;
                     row.appendChild(removedCell);
                     
-                    // Linhas líquidas
+                    // Net lines
                     const netCell = document.createElement('td');
                     netCell.textContent = gitStats.netLines[email] || 0;
                     row.appendChild(netCell);
@@ -621,7 +674,7 @@ export function getWebviewContent(
                 }
             }
             
-            // Inicializar a aplicação
+            // Initialize the application
             initialize();
         })();
     </script>

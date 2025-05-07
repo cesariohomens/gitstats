@@ -17,7 +17,7 @@
     "commands": [
       {
         "command": "gitstats.helloWorld",
-        "title": "Git Statistics"
+        "title": "Git Stats: Show Repository Analytics"
       }
     ]
   },

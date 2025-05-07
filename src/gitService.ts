@@ -12,7 +12,8 @@ export interface GitCommitData {
 }
 
 export interface GitStats {
-    branches: string[];
+    workspacePath?: string;   // Add this property
+    branches: { [name: string]: {type: 'local' | 'remote', fullName: string} };
     authorNames: { [email: string]: string };
     addedLines: { [email: string]: number };
     removedLines: { [email: string]: number };
@@ -26,7 +27,7 @@ export interface GitStats {
 
 export class GitService {
     /**
-     * Executa um comando Git no workspace especificado
+     * Executes a Git command in the specified workspace
      */
     private executeGitCommand(workspacePath: string, args: string[]): Promise<string> {
         return new Promise((resolve, reject) => {
@@ -45,20 +46,32 @@ export class GitService {
     }
 
     /**
-     * Obtém o branch atual
+     * Gets the current branch
      */
     public async getCurrentBranch(workspacePath: string): Promise<string> {
         try {
             const output = await this.executeGitCommand(workspacePath, ['rev-parse', '--abbrev-ref', 'HEAD']);
             return output.trim();
         } catch (error) {
-            console.error('Erro ao obter branch atual:', error);
+            console.error('Error getting current branch:', error);
             throw error;
         }
     }
 
     /**
-     * Verifica se um branch existe
+     * Checks if a repository exists in the workspace
+     */
+    public async isGitRepository(workspacePath: string): Promise<boolean> {
+        try {
+            await this.executeGitCommand(workspacePath, ['rev-parse', '--git-dir']);
+            return true;
+        } catch (error) {
+            return false;
+        }
+    }
+
+    /**
+     * Checks if a branch exists
      */
     public async branchExists(workspacePath: string, branch: string): Promise<boolean> {
         try {
@@ -70,29 +83,64 @@ export class GitService {
     }
 
     /**
-     * Obtém todos os branches disponíveis
+     * Gets all available branches (both local and remote)
      */
-    public async getBranches(workspacePath: string): Promise<string[]> {
+    public async getBranches(workspacePath: string): Promise<{ [name: string]: {type: 'local' | 'remote', fullName: string} }> {
+        const branches: { [name: string]: {type: 'local' | 'remote', fullName: string} } = {};
+        
         try {
-            const output = await this.executeGitCommand(workspacePath, ['branch']);
-            return output
+            // Get local branches
+            const localOutput = await this.executeGitCommand(workspacePath, ['branch']);
+            localOutput
                 .split('\n')
                 .filter(line => line.trim().length > 0)
-                .map(line => line.replace('*', '').trim());
+                .forEach(line => {
+                    const branchName = line.replace('*', '').trim();
+                    branches[branchName] = { 
+                        type: 'local',
+                        fullName: branchName 
+                    };
+                });
+                
+            // Get remote branches
+            const remoteOutput = await this.executeGitCommand(workspacePath, ['branch', '-r']);
+            remoteOutput
+                .split('\n')
+                .filter(line => line.trim().length > 0)
+                .forEach(line => {
+                    const fullName = line.trim();
+                    // Skip HEAD references
+                    if (fullName.includes('HEAD ->')) return;
+                    
+                    const parts = fullName.split('/');
+                    // Format: origin/main
+                    if (parts.length >= 2) {
+                        const remote = parts[0];
+                        const branchName = parts.slice(1).join('/');
+                        const displayName = `${branchName} (${remote})`;
+                        
+                        branches[displayName] = {
+                            type: 'remote',
+                            fullName: fullName
+                        };
+                    }
+                });
+                
+            return branches;
         } catch (error) {
-            console.error('Erro ao obter branches:', error);
-            return [];
+            console.error('Error getting branches:', error);
+            return {};
         }
     }
 
     /**
-     * Gera uma sequência de datas entre duas datas
+     * Generates a sequence of dates between two dates
      */
     private generateDateRange(startDate: Date, endDate: Date): string[] {
         const dates: string[] = [];
         const current = new Date(startDate);
         
-        // Incluir o dia final completo
+        // Include the full end day
         endDate.setHours(23, 59, 59, 999);
         
         while (current <= endDate) {
@@ -104,7 +152,7 @@ export class GitService {
     }
 
     /**
-     * Gera cores distintas para os gráficos
+     * Generates distinct colors for charts
      */
     public generateDistinctColors(n: number): string[] {
         const colors: string[] = [];
@@ -113,17 +161,24 @@ export class GitService {
             if (!colors.includes(color)) {
                 colors.push(color);
             } else {
-                i--; // tentar novamente
+                i--; // try again
             }
         }
         return colors;
     }
 
     /**
-     * Executa git log com os parâmetros especificados
+     * Runs git log with specified parameters
      */
     private async runGitLog(workspacePath: string, dateRange: string | null, branch: string): Promise<string> {
-        let command = ['log', branch];
+        let command = ['log'];
+        
+        // Handle remote branches correctly
+        if (branch.includes('/')) {
+            command.push(branch);
+        } else {
+            command.push(branch);
+        }
         
         if (dateRange) {
             command = [...command, ...dateRange.split(' ')];
@@ -137,7 +192,7 @@ export class GitService {
     }
 
     /**
-     * Gera estatísticas Git para as datas e branch especificados
+     * Generates Git statistics for specified dates and branch
      */
     public async getGitStats(
         workspacePath: string, 
@@ -145,24 +200,31 @@ export class GitService {
         endDateArg: string | null,
         branchName: string | null
     ): Promise<GitStats> {
-        // Se não for especificado branch, usar o atual
+        // If no branch specified, use the current one
         if (!branchName) {
             branchName = await this.getCurrentBranch(workspacePath);
         }
 
-        // Verificar se o branch existe
-        const branchExists = await this.branchExists(workspacePath, branchName);
-        if (!branchExists) {
-            throw new Error(`Branch '${branchName}' não existe.`);
+        // For remote branches, we don't need to check if they exist
+        if (!branchName.includes('/')) {
+            // Check if branch exists
+            const branchExists = await this.branchExists(workspacePath, branchName);
+            if (!branchExists) {
+                throw new Error(`Branch '${branchName}' does not exist.`);
+            }
         }
 
-        // Configurar intervalo de datas
+        // Configure date range
         let dateRange: string | null = null;
         let dateList: string[] | null = null;
         let startDate: string = "Beginning";
         let endDate: string = "Now";
 
-        if (startDateArg && startDateArg !== "all" && 
+        // Handle the "all" option for startDateArg to include from branch creation
+        if (startDateArg === "all") {
+            dateRange = endDateArg ? `--before=${endDateArg}` : null;
+            startDate = "Beginning";
+        } else if (startDateArg && startDateArg !== "all" && 
             endDateArg && endDateArg !== "all") {
             dateRange = `--after=${startDateArg} --before=${endDateArg}`;
             const startDt = new Date(startDateArg);
@@ -172,17 +234,17 @@ export class GitService {
             endDate = endDateArg;
         }
 
-        // Executar git log
+        // Execute git log
         const output = await this.runGitLog(workspacePath, dateRange, branchName);
 
-        // Processar resultados
+        // Process results
         const addedLines: { [email: string]: number } = {};
         const removedLines: { [email: string]: number } = {};
         const netLines: { [email: string]: number } = {};
         const authorNames: { [email: string]: string } = {};
         const commitsByDate: { [date: string]: { [email: string]: number } } = {};
 
-        // Dividir saída por commits
+        // Split output by commits
         const commits = output.split('--SPLIT--');
         for (const commit of commits) {
             const lines = commit.trim().split('\n');
@@ -196,15 +258,15 @@ export class GitService {
             const [, name, email] = match;
             authorNames[email] = name;
 
-            // Inicializar se necessário
+            // Initialize if necessary
             if (!commitsByDate[date]) {
                 commitsByDate[date] = {};
             }
             
-            // Incrementar contador de commits
+            // Increment commit counter
             commitsByDate[date][email] = (commitsByDate[date][email] || 0) + 1;
 
-            // Processar estatísticas de linhas
+            // Process line statistics
             for (let i = 2; i < lines.length; i++) {
                 const parts = lines[i].trim().split('\t');
                 if (parts.length === 3) {
@@ -216,13 +278,13 @@ export class GitService {
                         removedLines[email] = (removedLines[email] || 0) + removed;
                         netLines[email] = (netLines[email] || 0) + (added - removed);
                     } catch (error) {
-                        // Ignorar linhas com formato inválido
+                        // Ignore lines with invalid format
                     }
                 }
             }
         }
 
-        // Se não foi especificado datas, usar as datas dos commits
+        // If dates weren't specified, use commit dates
         if (dateList === null) {
             dateList = Object.keys(commitsByDate).sort();
             if (dateList.length > 0) {
@@ -231,10 +293,11 @@ export class GitService {
             }
         }
 
-        // Obter todos os branches
+        // Get all branches
         const branches = await this.getBranches(workspacePath);
 
         return {
+            workspacePath,
             branches,
             authorNames,
             addedLines,
