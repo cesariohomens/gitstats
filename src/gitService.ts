@@ -31,17 +31,30 @@ export class GitService {
      */
     private executeGitCommand(workspacePath: string, args: string[]): Promise<string> {
         return new Promise((resolve, reject) => {
-            child_process.exec(
-                `git ${args.join(' ')}`, 
-                { cwd: workspacePath, maxBuffer: 10 * 1024 * 1024 },
-                (error, stdout, stderr) => {
-                    if (error && error.code !== 0) {
-                        reject(new Error(`Git error: ${stderr.toString()}`));
-                        return;
-                    }
-                    resolve(stdout.toString());
+            // Use child_process.spawn instead of exec to avoid shell interpretation issues
+            const gitProcess = child_process.spawn('git', args, { 
+                cwd: workspacePath,
+                stdio: ['ignore', 'pipe', 'pipe']
+            });
+            
+            let stdout = '';
+            let stderr = '';
+            
+            gitProcess.stdout.on('data', (data) => {
+                stdout += data.toString();
+            });
+            
+            gitProcess.stderr.on('data', (data) => {
+                stderr += data.toString();
+            });
+            
+            gitProcess.on('close', (code) => {
+                if (code !== 0) {
+                    reject(new Error(`Git error: ${stderr}`));
+                    return;
                 }
-            );
+                resolve(stdout);
+            });
         });
     }
 
@@ -171,23 +184,29 @@ export class GitService {
      * Runs git log with specified parameters
      */
     private async runGitLog(workspacePath: string, dateRange: string | null, branch: string): Promise<string> {
-        let command = ['log'];
+        const command = ['log'];
         
         // Handle remote branches correctly
-        if (branch.includes('/')) {
-            command.push(branch);
-        } else {
-            command.push(branch);
-        }
+        command.push(branch);
         
         if (dateRange) {
-            command = [...command, ...dateRange.split(' ')];
+            if (dateRange.includes('--after=')) {
+                const afterDate = dateRange.match(/--after=([^ ]+)/)?.[1];
+                if (afterDate) command.push(`--after=${afterDate}`);
+            }
+            
+            if (dateRange.includes('--before=')) {
+                const beforeDate = dateRange.match(/--before=([^ ]+)/)?.[1];
+                if (beforeDate) command.push(`--before=${beforeDate}`);
+            }
         }
         
+        // With spawn, we can safely use format specifiers without shell interpretation
         command.push('--pretty=format:--SPLIT--%n%ad%n%an <%ae>');
         command.push('--date=short');
         command.push('--numstat');
         
+        console.log('Running git command:', 'git', command.join(' '));
         return this.executeGitCommand(workspacePath, command);
     }
 
