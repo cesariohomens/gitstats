@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import * as child_process from 'child_process';
+import * as childProcess from 'child_process';
 import { format } from 'date-fns';
 
 export interface GitCommitData {
@@ -32,7 +32,7 @@ export class GitService {
     private executeGitCommand(workspacePath: string, args: string[]): Promise<string> {
         return new Promise((resolve, reject) => {
             // Use child_process.spawn instead of exec to avoid shell interpretation issues
-            const gitProcess = child_process.spawn('git', args, { 
+            const gitProcess = childProcess.spawn('git', args, { 
                 cwd: workspacePath,
                 stdio: ['ignore', 'pipe', 'pipe']
             });
