@@ -186,22 +186,21 @@ export class GitService {
     private async runGitLog(workspacePath: string, dateRange: string | null, branch: string): Promise<string> {
         const command = ['log'];
         
-        // Handle remote branches correctly
+        // Add branch to command
         command.push(branch);
         
+        // Handle date range parameters
         if (dateRange) {
+            // Parse date range parameters correctly
             if (dateRange.includes('--after=')) {
-                const afterDate = dateRange.match(/--after=([^ ]+)/)?.[1];
-                if (afterDate) command.push(`--after=${afterDate}`);
+                command.push(dateRange.split(' ')[0]);
             }
-            
             if (dateRange.includes('--before=')) {
-                const beforeDate = dateRange.match(/--before=([^ ]+)/)?.[1];
-                if (beforeDate) command.push(`--before=${beforeDate}`);
+                command.push(dateRange.split(' ').length > 1 ? dateRange.split(' ')[1] : dateRange);
             }
         }
         
-        // With spawn, we can safely use format specifiers without shell interpretation
+        // Format options
         command.push('--pretty=format:--SPLIT--%n%ad%n%an <%ae>');
         command.push('--date=short');
         command.push('--numstat');

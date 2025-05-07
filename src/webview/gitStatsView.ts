@@ -429,6 +429,18 @@ export function getWebviewContent(
             function renderCharts() {
                 if (!gitStats) return;
                 
+                // Clear any existing charts first
+                if (commitsChart) {
+                    commitsChart.destroy();
+                    commitsChart = null;
+                }
+                
+                if (linesChart) {
+                    linesChart.destroy();
+                    linesChart = null;
+                }
+                
+                // Now render new charts
                 renderCommitsChart();
                 renderLinesChart();
             }

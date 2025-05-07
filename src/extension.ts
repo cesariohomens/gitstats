@@ -4,6 +4,7 @@ import { getWebviewContent } from './webview/gitStatsView';
 import { GitService } from './gitService';
 
 export function activate(context: vscode.ExtensionContext) {
+    let initialDataLoaded = false;
     console.log('Extension "gitstats" is active!');
     
     const gitService = new GitService();
@@ -74,7 +75,11 @@ export function activate(context: vscode.ExtensionContext) {
                         // The webview is ready, now load the repository data
                         if (gitRepositories.length > 0) {
                             try {
-                                await loadInitialData();
+                                // Only load initial data once
+                                if (!initialDataLoaded) {
+                                    await loadInitialData();
+                                    initialDataLoaded = true;
+                                }
                             } catch (error) {
                                 console.error('Error loading initial data:', error);
                             }
