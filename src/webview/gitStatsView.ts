@@ -183,13 +183,6 @@ export function getWebviewContent(
         tr:nth-child(even) {
             background-color: var(--vscode-list-hoverBackground);
         }
-        .refresh-button-container {
-            display: flex;
-            align-items: flex-end;
-        }
-        .refresh-button-container button {
-            margin-bottom: 10px;
-        }
         #no-data-message {
             text-align: center;
             margin: 50px 0;
@@ -212,6 +205,23 @@ export function getWebviewContent(
             display: flex;
             align-items: center;
             gap: 5px;
+        }
+        .loading-indicator {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: var(--vscode-progressBar-background);
+            animation: loading 1.5s infinite ease-in-out;
+            transform-origin: 0 0;
+            display: none;
+        }
+
+        @keyframes loading {
+            0% { transform: scaleX(0); }
+            50% { transform: scaleX(0.5); }
+            100% { transform: scaleX(1); }
         }
     </style>
 </head>
@@ -246,10 +256,6 @@ export function getWebviewContent(
             <div class="control-group">
                 <label for="end-date">End Date:</label>
                 <input type="date" id="end-date" value="${defaultEndDate}">
-            </div>
-            
-            <div class="refresh-button-container">
-                <button id="refresh-stats-btn">Update Statistics</button>
             </div>
         </div>
         
@@ -311,6 +317,8 @@ export function getWebviewContent(
         </div>
     </div>
     
+    <div class="loading-indicator" id="loading"></div>
+
     <script nonce="${nonce}" src="${chartJsUri}"></script>
     <script nonce="${nonce}">
         (function() {
@@ -326,15 +334,25 @@ export function getWebviewContent(
             const startDateInput = document.getElementById('start-date');
             const fromBeginningCheckbox = document.getElementById('from-beginning-checkbox');
             const endDateInput = document.getElementById('end-date');
-            const refreshButton = document.getElementById('refresh-stats-btn');
             const tabs = document.querySelectorAll('.tab');
             const tabContents = document.querySelectorAll('.tab-content');
             const noDataMessage = document.getElementById('no-data-message');
+            const loadingIndicator = document.getElementById('loading');
             
             // Chart references
             let commitsChart = null;
             let linesChart = null;
             
+            // Debounce function to prevent multiple rapid calls
+            function debounce(func, wait) {
+                let timeout;
+                return function(...args) {
+                    const context = this;
+                    clearTimeout(timeout);
+                    timeout = setTimeout(() => func.apply(context, args), wait);
+                };
+            }
+
             // Initialization
             function initialize() {
                 setupEventListeners();
@@ -370,27 +388,27 @@ export function getWebviewContent(
                     });
                 });
                 
+                // Branch change - automatically refresh stats
+                branchSelector.addEventListener('change', () => {
+                    debouncedRefresh();
+                });
+                
                 // From beginning checkbox
                 if (fromBeginningCheckbox) {
                     fromBeginningCheckbox.addEventListener('change', () => {
                         startDateInput.disabled = fromBeginningCheckbox.checked;
+                        debouncedRefresh(); // Automatically refresh when checkbox changes
                     });
                 }
                 
-                // Update statistics
-                refreshButton.addEventListener('click', () => {
-                    const repositoryPath = repositorySelector.value;
-                    const branch = branchSelector.value;
-                    const startDate = fromBeginningCheckbox.checked ? "all" : startDateInput.value;
-                    const endDate = endDateInput.value;
-                    
-                    vscode.postMessage({
-                        command: 'refresh-stats',
-                        repositoryPath,
-                        branch,
-                        startDate,
-                        endDate
-                    });
+                // Start date change
+                startDateInput.addEventListener('change', () => {
+                    debouncedRefresh();
+                });
+                
+                // End date change
+                endDateInput.addEventListener('change', () => {
+                    debouncedRefresh();
                 });
                 
                 // Tabs
@@ -409,8 +427,43 @@ export function getWebviewContent(
                         document.getElementById('tab-' + tabId).classList.add('active');
                     });
                 });
+                
+                // Helper function to refresh stats
+                function refreshStats() {
+                    const repositoryPath = repositorySelector.value;
+                    const branch = branchSelector.value;
+                    const startDate = fromBeginningCheckbox && fromBeginningCheckbox.checked ? "all" : startDateInput.value;
+                    const endDate = endDateInput.value;
+                    
+                    // Only refresh if we have all the necessary values
+                    if (repositoryPath && branch) {
+                        setLoading(true); // Show loading indicator
+                        vscode.postMessage({
+                            command: 'refresh-stats',
+                            repositoryPath,
+                            branch,
+                            startDate,
+                            endDate
+                        });
+                    }
+                }
+
+                const debouncedRefresh = debounce(refreshStats, 300);
             }
             
+            // Function to show/hide loading indicator
+            function setLoading(isLoading) {
+                loadingIndicator.style.display = isLoading ? 'block' : 'none';
+            }
+
+            // Handle message from extension to hide loading indicator
+            window.addEventListener('message', (event) => {
+                const message = event.data;
+                if (message.command === 'stats-updated') {
+                    setLoading(false);
+                }
+            });
+
             // Generate distinct colors for charts
             function generateDistinctColors(n) {
                 const colors = [];

@@ -220,6 +220,11 @@ export function activate(context: vscode.ExtensionContext) {
                     
                     // Update interface with statistics
                     updateWebviewContent(statsWithPath);
+
+                    // Notify webview that stats update is complete
+                    if (panel) {
+                        panel.webview.postMessage({ command: 'stats-updated' });
+                    }
                 }
             );
         } catch (error) {
