@@ -177,11 +177,16 @@ export function activate(context: vscode.ExtensionContext) {
                         branch: currentBranch
                     });
                     
+                    // Substituir o uso de "all" por uma data específica
+                    const oneMonthAgo = new Date();
+                    oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+                    const startDate = oneMonthAgo.toISOString().split('T')[0];
+
                     // Only auto-load stats if not being called from loadInitialData
                     if (!skipAutoRefresh) {
                         await refreshGitStats(
                             repositoryPath,
-                            "all", // From beginning
+                            startDate, // Em vez de "all"
                             new Date().toISOString().split('T')[0], // Today
                             currentBranch
                         );
@@ -264,10 +269,14 @@ export function activate(context: vscode.ExtensionContext) {
             
             console.log('Loading statistics for branch:', currentBranch);
             
-            // Then automatically load statistics for current branch
+            // Substituir o uso de "all" por uma data específica
+            const oneMonthAgo = new Date();
+            oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+            const startDate = oneMonthAgo.toISOString().split('T')[0];
+
             await refreshGitStats(
                 firstRepo, 
-                "all",  // From beginning
+                startDate,  // Em vez de "all"
                 new Date().toISOString().split('T')[0],  // Today
                 currentBranch
             );

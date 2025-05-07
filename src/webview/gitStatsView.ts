@@ -49,18 +49,13 @@ export function getWebviewContent(
     const oneMonthAgo = new Date();
     oneMonthAgo.setMonth(today.getMonth() - 1);
 
-    // Add a date picker with "From Branch Creation" option
+    // Start date picker, agora ocupando todo o espaço disponível
     const startDateOptions = `
-        <div style="display: flex; align-items: center; gap: 10px;">
-            <input type="date" id="start-date" value="${gitStats?.startDate && gitStats.startDate !== "Beginning" ? gitStats.startDate : oneMonthAgo.toISOString().split('T')[0]}">
-            <div>
-                <label>
-                    <input type="checkbox" id="from-beginning-checkbox" ${gitStats?.startDate === "Beginning" ? "checked" : ""}>
-                    From Branch Creation
-                </label>
-            </div>
-        </div>
-    `;
+    <div style="width: 100%;">
+        <input type="date" id="start-date" style="width: 100%; box-sizing: border-box;" 
+               value="${gitStats?.startDate && gitStats.startDate !== "Beginning" ? gitStats.startDate : oneMonthAgo.toISOString().split('T')[0]}">
+    </div>
+`;
 
     const defaultEndDate = gitStats?.endDate && gitStats.endDate !== "Now"
         ? gitStats.endDate
@@ -332,7 +327,6 @@ export function getWebviewContent(
             const repositorySelector = document.getElementById('repository-selector');
             const branchSelector = document.getElementById('branch-selector');
             const startDateInput = document.getElementById('start-date');
-            const fromBeginningCheckbox = document.getElementById('from-beginning-checkbox');
             const endDateInput = document.getElementById('end-date');
             const tabs = document.querySelectorAll('.tab');
             const tabContents = document.querySelectorAll('.tab-content');
@@ -356,11 +350,6 @@ export function getWebviewContent(
             // Initialization
             function initialize() {
                 setupEventListeners();
-                
-                // Initialize checkbox state if it exists
-                if (fromBeginningCheckbox) {
-                    startDateInput.disabled = fromBeginningCheckbox.checked;
-                }
                 
                 // Show message if no data
                 if (!gitStats) {
@@ -393,14 +382,6 @@ export function getWebviewContent(
                     debouncedRefresh();
                 });
                 
-                // From beginning checkbox
-                if (fromBeginningCheckbox) {
-                    fromBeginningCheckbox.addEventListener('change', () => {
-                        startDateInput.disabled = fromBeginningCheckbox.checked;
-                        debouncedRefresh(); // Automatically refresh when checkbox changes
-                    });
-                }
-                
                 // Start date change
                 startDateInput.addEventListener('change', () => {
                     debouncedRefresh();
@@ -432,18 +413,20 @@ export function getWebviewContent(
                 function refreshStats() {
                     const repositoryPath = repositorySelector.value;
                     const branch = branchSelector.value;
-                    const startDate = fromBeginningCheckbox && fromBeginningCheckbox.checked ? "all" : startDateInput.value;
+                    const startDate = startDateInput.value;
                     const endDate = endDateInput.value;
                     
                     // Only refresh if we have all the necessary values
                     if (repositoryPath && branch) {
-                        setLoading(true); // Show loading indicator
+                        // Show loading indicator
+                        loadingIndicator.style.display = 'flex';
+                        
                         vscode.postMessage({
                             command: 'refresh-stats',
                             repositoryPath,
-                            branch,
                             startDate,
-                            endDate
+                            endDate,
+                            branch
                         });
                     }
                 }
@@ -705,7 +688,17 @@ export function getWebviewContent(
                 const tableBody = document.getElementById('lines-table-body');
                 tableBody.innerHTML = '';
                 
+                if (!gitStats || !gitStats.authorNames) return;
+                
+                // Get author emails and sort them by author name
                 const authorEmails = Object.keys(gitStats.authorNames);
+                
+                // Sort by author name (ascending)
+                authorEmails.sort((emailA, emailB) => {
+                    const authorA = gitStats.authorNames[emailA].toLowerCase();
+                    const authorB = gitStats.authorNames[emailB].toLowerCase();
+                    return authorA.localeCompare(authorB);
+                });
                 
                 for (const email of authorEmails) {
                     const row = document.createElement('tr');
