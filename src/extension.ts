@@ -143,11 +143,13 @@ export function activate(context: vscode.ExtensionContext) {
     }
     
     // Handle repository change
-    async function handleRepositoryChanged(repositoryPath: string) {
-        if (!panel) return;
+    async function handleRepositoryChanged(repositoryPath: string, skipAutoRefresh = false): Promise<string> {
+        if (!panel) {
+            return '';
+        }
         
         try {
-            await vscode.window.withProgress(
+            return await vscode.window.withProgress(
                 {
                     location: vscode.ProgressLocation.Notification,
                     title: "Loading branches...",
@@ -165,7 +167,7 @@ export function activate(context: vscode.ExtensionContext) {
                     
                     if (Object.keys(branches).length === 0) {
                         showError(`No branches found in repository ${repositoryPath}`);
-                        return;
+                        return currentBranch;
                     }
                     
                     // Update webview with branch information
@@ -174,6 +176,18 @@ export function activate(context: vscode.ExtensionContext) {
                         branches,
                         branch: currentBranch
                     });
+                    
+                    // Only auto-load stats if not being called from loadInitialData
+                    if (!skipAutoRefresh) {
+                        await refreshGitStats(
+                            repositoryPath,
+                            "all", // From beginning
+                            new Date().toISOString().split('T')[0], // Today
+                            currentBranch
+                        );
+                    }
+                    
+                    return currentBranch;
                 }
             );
         } catch (error) {
@@ -189,7 +203,9 @@ export function activate(context: vscode.ExtensionContext) {
         endDate: string,
         branch: string
     ) {
-        if (!panel) return;
+        if (!panel) {
+            return;
+        }
         
         try {
             await vscode.window.withProgress(
@@ -235,19 +251,20 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Load initial data for the first repository
     async function loadInitialData() {
-        if (gitRepositories.length === 0 || !panel) return;
+        if (gitRepositories.length === 0 || !panel) {
+            return;
+        }
         
         try {
             console.log('Loading initial data for repository:', gitRepositories[0]);
             
-            // First load repository branches
+            // First load repository branches and get current branch
             const firstRepo = gitRepositories[0];
-            await handleRepositoryChanged(firstRepo);
+            const currentBranch = await handleRepositoryChanged(firstRepo, true);
             
-            // Then automatically load statistics for current branch
-            const currentBranch = await gitService.getCurrentBranch(firstRepo);
             console.log('Loading statistics for branch:', currentBranch);
             
+            // Then automatically load statistics for current branch
             await refreshGitStats(
                 firstRepo, 
                 "all",  // From beginning
