@@ -283,21 +283,6 @@ export function getWebviewContent(
             </div>
             
             <div id="tab-tables" class="tab-content">
-                <h2>Commits by Author and Date</h2>
-                <div id="commits-table-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Date</th>
-                                <th>Author</th>
-                                <th>Email</th>
-                                <th>Commits</th>
-                            </tr>
-                        </thead>
-                        <tbody id="commits-table-body"></tbody>
-                    </table>
-                </div>
-                
                 <h2>Lines Modified by Author</h2>
                 <div id="lines-table-container">
                     <table>
@@ -311,6 +296,21 @@ export function getWebviewContent(
                             </tr>
                         </thead>
                         <tbody id="lines-table-body"></tbody>
+                    </table>
+                </div>
+                
+                <h2>Commits by Author and Date</h2>
+                <div id="commits-table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Author</th>
+                                <th>Email</th>
+                                <th>Commits</th>
+                            </tr>
+                        </thead>
+                        <tbody id="commits-table-body"></tbody>
                     </table>
                 </div>
             </div>
