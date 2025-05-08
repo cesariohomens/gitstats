@@ -3,12 +3,8 @@ import * as path from 'path';
 import { GitStats } from '../gitService';
 
 export function getNonce() {
-    let text = '';
     const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    for (let i = 0; i < 32; i++) {
-        text += possible.charAt(Math.floor(Math.random() * possible.length));
-    }
-    return text;
+    return Array.from({length: 32}, () => possible.charAt(Math.floor(Math.random() * possible.length))).join('');
 }
 
 export function getWebviewContent(
@@ -26,16 +22,25 @@ export function getWebviewContent(
     // Generate nonce for security
     const nonce = getNonce();
 
+    // Configure default dates
+    const today = new Date();
+    const oneMonthAgo = new Date();
+    oneMonthAgo.setMonth(today.getMonth() - 1);
+    
+    // Format dates for inputs
+    const defaultStartDate = oneMonthAgo.toISOString().split('T')[0];
+    const defaultEndDate = today.toISOString().split('T')[0];
+
     // Generate workspace folder options for the dropdown
     const workspaceOptions = workspaceFolders 
         ? workspaceFolders
             .filter(folder => gitRepos.includes(folder.uri.fsPath))
-            .map(folder => `<option value="${folder.uri.fsPath}" ${gitStats && folder.uri.fsPath === gitStats.workspacePath ? 'selected' : ''}>${folder.name}</option>`)
+            .map(folder => `<option value="${folder.uri.fsPath}" ${gitStats?.workspacePath === folder.uri.fsPath ? 'selected' : ''}>${folder.name}</option>`)
             .join('')
         : '';
 
     // Generate branch options for the dropdown
-    const branchOptions = gitStats && gitStats.branches
+    const branchOptions = gitStats?.branches
         ? Object.entries(gitStats.branches)
             .map(([branchName, details]) => {
                 const icon = details.type === 'local' ? '🔹' : '🔸';
@@ -43,23 +48,6 @@ export function getWebviewContent(
             })
             .join('')
         : '<option value="">Loading branches...</option>';
-
-    // Configure default dates
-    const today = new Date();
-    const oneMonthAgo = new Date();
-    oneMonthAgo.setMonth(today.getMonth() - 1);
-
-    // Start date picker, agora ocupando todo o espaço disponível
-    const startDateOptions = `
-    <div style="width: 100%;">
-        <input type="date" id="start-date" style="width: 100%; box-sizing: border-box;" 
-               value="${gitStats?.startDate && gitStats.startDate !== "Beginning" ? gitStats.startDate : oneMonthAgo.toISOString().split('T')[0]}">
-    </div>
-`;
-
-    const defaultEndDate = gitStats?.endDate && gitStats.endDate !== "Now"
-        ? gitStats.endDate
-        : today.toISOString().split('T')[0];
 
     // Prepare data for charts if available
     const statsJson = gitStats 
@@ -74,7 +62,7 @@ export function getWebviewContent(
         : 'null';
 
     // HTML content for the webview
-    return /*html*/`<!DOCTYPE html>
+    return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -239,13 +227,12 @@ export function getWebviewContent(
                 </select>
                 <div class="legend">
                     <div class="legend-item"><span>🔹</span> Local</div>
-                    <div class="legend-item"><span>🔸</span> Remote</div>
                 </div>
             </div>
             
             <div class="control-group">
                 <label for="start-date">Start Date:</label>
-                ${startDateOptions}
+                <input type="date" id="start-date" value="${defaultStartDate}">
             </div>
             
             <div class="control-group">
@@ -643,8 +630,8 @@ export function getWebviewContent(
             function populateTables() {
                 if (!gitStats) return;
                 
-                populateCommitsTable();
                 populateLinesTable();
+                populateCommitsTable();
             }
             
             // Populate commits table
